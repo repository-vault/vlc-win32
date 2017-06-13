@@ -2,7 +2,7 @@
  * vlc_input.h: Core input structures
  *****************************************************************************
  * Copyright (C) 1999-2006 VLC authors and VideoLAN
- * $Id: b48a256ca4d7be090540a638f0c3040d17410b55 $
+ * $Id: 13a944a2ac92728542d3f33755daf7857113d5d9 $
  *
  * Authors: Christophe Massiot <massiot@via.ecp.fr>
  *          Laurent Aimar <fenrir@via.ecp.fr>
@@ -36,6 +36,7 @@
 #include <vlc_epg.h>
 #include <vlc_events.h>
 #include <vlc_input_item.h>
+#include <vlc_vout_osd.h>
 
 #include <string.h>
 
@@ -52,6 +53,8 @@ struct seekpoint_t
 static inline seekpoint_t *vlc_seekpoint_New( void )
 {
     seekpoint_t *point = (seekpoint_t*)malloc( sizeof( seekpoint_t ) );
+    if( !point )
+        return NULL;
     point->i_byte_offset =
     point->i_time_offset = -1;
     point->psz_name = NULL;
@@ -77,7 +80,7 @@ static inline seekpoint_t *vlc_seekpoint_Duplicate( const seekpoint_t *src )
 /*****************************************************************************
  * Title:
  *****************************************************************************/
-typedef struct
+typedef struct input_title_t
 {
     char        *psz_name;
 
@@ -95,6 +98,8 @@ typedef struct
 static inline input_title_t *vlc_input_title_New(void)
 {
     input_title_t *t = (input_title_t*)malloc( sizeof( input_title_t ) );
+    if( !t )
+        return NULL;
 
     t->psz_name = NULL;
     t->b_menu = false;
@@ -201,13 +206,6 @@ static inline void vlc_input_attachment_Delete( input_attachment_t *a )
 /*****************************************************************************
  * input defines/constants.
  *****************************************************************************/
-
-/* i_update field of access_t/demux_t */
-#define INPUT_UPDATE_TITLE      0x0010
-#define INPUT_UPDATE_SEEKPOINT  0x0020
-#define INPUT_UPDATE_META       0x0040
-#define INPUT_UPDATE_SIGNAL     0x0080
-#define INPUT_UPDATE_TITLE_LIST 0x0100
 
 /**
  * This defines private core storage for an input.
@@ -533,14 +531,6 @@ static inline input_state_e input_GetState( input_thread_t * p_input )
     input_Control( p_input, INPUT_GET_STATE, &state );
     return state;
 }
-/**
- * It will add a new subtitle source to the input.
- * Provided for convenience.
- */
-static inline int input_AddSubtitle( input_thread_t *p_input, const char *psz_url, bool b_check_extension )
-{
-    return input_Control( p_input, INPUT_ADD_SUBTITLE, psz_url, b_check_extension );
-}
 
 /**
  * Return one of the video output (if any). If possible, you should use
@@ -564,6 +554,29 @@ static inline vout_thread_t *input_GetVout( input_thread_t *p_input )
      free( pp_vout );
      return p_vout;
 }
+
+/**
+ * It will add a new subtitle source to the input.
+ * Provided for convenience.
+ */
+static inline int input_AddSubtitleOSD( input_thread_t *p_input, const char *psz_url,
+        bool b_check_extension, bool b_osd )
+{
+    int i_result = input_Control( p_input, INPUT_ADD_SUBTITLE, psz_url, b_check_extension );
+    if( i_result != VLC_SUCCESS || !b_osd )
+        return i_result;
+
+    vout_thread_t *p_vout = input_GetVout( p_input );
+    if( p_vout )
+    {
+        vout_OSDMessage(p_vout, SPU_DEFAULT_CHANNEL, "%s",
+                        vlc_gettext("Subtitle track added") );
+        vlc_object_release( (vlc_object_t *)p_vout );
+    }
+    return i_result;
+}
+#define input_AddSubtitle(a, b, c) input_AddSubtitleOSD(a, b, c, false)
+
 
 /**
  * Return the audio output (if any) associated with an input.
@@ -614,7 +627,7 @@ VLC_API void input_DecoderDecode( decoder_t *, block_t *, bool b_do_pace );
 /**
  * This function creates a sane filename path.
  */
-VLC_API char * input_CreateFilename( vlc_object_t *, const char *psz_path, const char *psz_prefix, const char *psz_extension ) VLC_USED;
+VLC_API char * input_CreateFilename( input_thread_t *, const char *psz_path, const char *psz_prefix, const char *psz_extension ) VLC_USED;
 
 /**
  * It creates an empty input resource handler.
@@ -644,5 +657,20 @@ VLC_API void input_resource_Terminate( input_resource_t * );
  * Use vlc_object_release() to drop the reference.
  */
 VLC_API audio_output_t *input_resource_HoldAout( input_resource_t * );
+
+/**
+ * This function creates or recycles an audio output.
+ */
+VLC_API audio_output_t *input_resource_GetAout( input_resource_t * );
+
+/**
+ * This function retains or destroys an audio output.
+ */
+VLC_API void input_resource_PutAout( input_resource_t *, audio_output_t * );
+
+/**
+ * Prevents the existing audio output (if any) from being recycled.
+ */
+VLC_API void input_resource_ResetAout( input_resource_t * );
 
 #endif
